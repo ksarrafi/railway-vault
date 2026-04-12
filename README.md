@@ -2,6 +2,20 @@
 
 Centralized encrypted key-value store for all your Railway applications. No more secrets in code or environment variables!
 
+**⚡ Quick Start:** [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) - Everything you need to know in one place
+
+---
+
+## 📚 Documentation
+
+- **[EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** - Start here! Overview, timeline, decision guide
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - API cheat sheet and quick commands
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Step-by-step migration guide for all 5 services
+- **[DEPLOY.md](DEPLOY.md)** - Railway deployment instructions
+- **[INTEGRATION_PLAN.md](INTEGRATION_PLAN.md)** - Complete 7-day rollout plan with timeline
+
+---
+
 ## 🎯 Architecture
 
 ```
