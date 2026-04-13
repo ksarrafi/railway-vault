@@ -1,18 +1,48 @@
 # Railway KMac Vault
 
+**Version:** 1.0.0 | **Status:** ✅ Production Ready | **Deployed:** April 12, 2026
+
 Centralized encrypted key-value store for all your Railway applications. No more secrets in code or environment variables!
 
-**⚡ Quick Start:** [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) - Everything you need to know in one place
+**🚀 Live:** https://kmac-vault-production.up.railway.app  
+**🔒 Encryption:** Fernet (AES-128-CBC + HMAC-SHA256)  
+**📦 Storage:** Persistent Railway volume
 
 ---
 
-## 📚 Documentation
+## ⚡ Quick Start
 
-- **[EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** - Start here! Overview, timeline, decision guide
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - API cheat sheet and quick commands
-- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Step-by-step migration guide for all 5 services
+### New Users
+
+1. **[EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** ⭐ **Start here** - Complete overview
+2. **[DEPLOYMENT_SUCCESS.md](DEPLOYMENT_SUCCESS.md)** ✅ See current deployment
+3. **[INDEX.md](INDEX.md)** 📚 Full documentation index
+
+### Already Deployed?
+
+- **Migrate Adajoon:** [ADAJOON_MIGRATION.md](ADAJOON_MIGRATION.md)
+- **API Reference:** [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
+- **Compare Options:** [COMPARISON.md](COMPARISON.md)
+
+---
+
+## 📚 Complete Documentation
+
+**[→ See INDEX.md for full documentation index](INDEX.md)**
+
+### Essential Guides
+
+- **[EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** - Overview, decision guide, timeline
+- **[DEPLOYMENT_SUCCESS.md](DEPLOYMENT_SUCCESS.md)** - Current status & verification
+- **[COMPARISON.md](COMPARISON.md)** - HashiCorp vs Railway vs railway-vault
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - API cheat sheet
+
+### Migration Guides
+
+- **[ADAJOON_MIGRATION.md](ADAJOON_MIGRATION.md)** - Migrate Adajoon step-by-step
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - General service migration
+- **[INTEGRATION_PLAN.md](INTEGRATION_PLAN.md)** - 7-day rollout plan
 - **[DEPLOY.md](DEPLOY.md)** - Railway deployment instructions
-- **[INTEGRATION_PLAN.md](INTEGRATION_PLAN.md)** - Complete 7-day rollout plan with timeline
 
 ---
 
