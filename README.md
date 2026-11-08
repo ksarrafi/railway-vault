@@ -1,12 +1,18 @@
 # Railway KMac Vault
 
-**Version:** 1.0.0 | **Status:** ✅ Production Ready | **Deployed:** April 12, 2026
+**Version:** 1.1.0 | **Status:** ✅ Production Ready
 
 Centralized encrypted key-value store for all your Railway applications. No more secrets in code or environment variables!
 
-**🚀 Live:** https://kmac-vault-production.up.railway.app  
-**🔒 Encryption:** Fernet (AES-128-CBC + HMAC-SHA256)  
+**🔒 Encryption:** Fernet (AES-128-CBC + HMAC-SHA256), key independent of any auth token
 **📦 Storage:** Persistent Railway volume
+**🔑 Auth:** One scoped token per app — no single token has access to every secret
+
+> This service is meant to be reached only over Railway's private network
+> (`vault.railway.internal`). Do not publish its public domain in docs, chat,
+> or anywhere else — if you've generated a public Railway domain for it,
+> disable it in the Railway dashboard (Settings → Networking) once private
+> networking is confirmed working.
 
 ---
 
@@ -63,11 +69,13 @@ Railway Projects:
 
 ## 🚀 Features
 
-- ✅ **Encrypted at rest** - Fernet (AES-128-CBC + HMAC-SHA256)
+- ✅ **Encrypted at rest** - Fernet (AES-128-CBC + HMAC-SHA256), key independent of auth tokens
 - ✅ **Persistent storage** - Railway volume for database
 - ✅ **Private networking** - Only accessible within your Railway account
-- ✅ **Rate limiting** - 100 requests/minute per IP
-- ✅ **Bearer token auth** - Single secure token
+- ✅ **Rate limiting** - 100 requests/minute per IP (trusts only the hop your own reverse proxy appends)
+- ✅ **Per-app scoped tokens** - each app gets its own token, restricted to its own key prefix
+- ✅ **Audit log** - every read/write/delete is recorded with actor, key, status, timestamp
+- ✅ **Soft delete + version history** - deletes and overwrites are recoverable, not destructive
 - ✅ **REST API** - Simple HTTP endpoints
 - ✅ **No code changes** - Apps fetch secrets at startup
 
@@ -96,15 +104,38 @@ Or via Railway dashboard:
 - Click "Variables" tab
 - Add Volume: `/vault/data`
 
-### 3. Generate Secure Token
+### 3. Generate the Master Encryption Key and Per-App Tokens
+
+The encryption key (`VAULT_MASTER_KEY`) is separate from every app's auth
+token, so rotating a token never breaks decryption of existing secrets.
+Generate it once and never rotate it casually — rotating it requires
+re-encrypting the database (see `migrate_encryption.py`).
 
 ```bash
-# Generate a strong token
-openssl rand -base64 32
+# Generate the master encryption key (once, keep it secret and backed up)
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+railway variables set VAULT_MASTER_KEY="<the-key-above>"
 
-# Set as environment variable
-railway variables set VAULT_TOKEN="<your-generated-token>"
+# Generate one token per app, plus one admin token for yourself
+openssl rand -base64 32   # repeat per app and for admin
+
+# Set as a single JSON variable — one entry per app, each scoped to its own prefix
+railway variables set VAULT_TOKENS='{
+  "admin":     {"token": "<admin-token>", "admin": true},
+  "adajoon":   {"token": "<adajoon-token>"},
+  "infobank":  {"token": "<infobank-token>"}
+}'
 ```
+
+Each app's token can only read/write/list/delete keys under `<app-name>:` —
+a leaked `adajoon` token cannot be used to read InfoBank's or StableBank's
+secrets. Only the `admin` token (keep it off of any application service)
+can see everything, and only the `admin` token can read `/admin/audit` and
+`/history/:key`.
+
+`VAULT_TOKEN` (a single unscoped token) is still accepted for backward
+compatibility, but is deprecated: it grants full access to every app's
+secrets and should be migrated away from.
 
 ### 4. Enable Private Networking
 
@@ -172,10 +203,28 @@ Response:
 }
 ```
 
-### Delete Secret
+### Delete Secret (soft delete — recoverable)
 ```bash
 POST /delete/:key
 Authorization: Bearer <token>
+```
+
+### Undelete Secret
+```bash
+POST /undelete/:key
+Authorization: Bearer <token>
+```
+
+### Key History (admin only)
+```bash
+GET /history/:key
+Authorization: Bearer <admin-token>
+```
+
+### Audit Log (admin only)
+```bash
+GET /admin/audit?limit=100
+Authorization: Bearer <admin-token>
 ```
 
 ---
@@ -339,14 +388,16 @@ func main() {
 
 **DO:**
 - ✅ Generate strong tokens: `openssl rand -base64 32`
-- ✅ Store token in Railway environment variables
-- ✅ Rotate tokens periodically
-- ✅ Use different tokens for dev/staging/prod
+- ✅ Give each app its own token in `VAULT_TOKENS`, scoped to its own prefix
+- ✅ Keep the `admin` token out of application services entirely — use it only from your own machine/CI for audits and cross-app operations
+- ✅ Rotate an app's token freely; it no longer affects decryption of existing secrets (the encryption key, `VAULT_MASTER_KEY`, is separate)
+- ✅ Use different `VAULT_TOKENS` configs for dev/staging/prod (or separate vault instances)
 
 **DON'T:**
-- ❌ Commit tokens to git
+- ❌ Commit tokens, or `VAULT_MASTER_KEY`, to git
 - ❌ Log tokens in application code
 - ❌ Share tokens via Slack/email
+- ❌ Give every app the same token — that turns a single leak into a leak of every secret for every project
 
 ### 2. Key Naming Convention
 
@@ -394,10 +445,14 @@ VAULT_URL=https://vault-production-xxxx.railway.app
 
 ## 🛠️ Management
 
+> The examples below that touch secrets across multiple apps (`/list`,
+> backup/restore) require the `admin` token. An app's own scoped token only
+> sees its own `<app>:` prefix.
+
 ### Add Secret via CLI
 
 ```bash
-# Set VAULT_URL and VAULT_TOKEN
+# Set VAULT_URL and VAULT_TOKEN (the app's own token, or admin for cross-app ops)
 export VAULT_URL="http://vault.railway.internal:9999"
 export VAULT_TOKEN="your-token-here"
 

@@ -69,7 +69,7 @@ JSON_LOGS=true
 ```bash
 # Set vault credentials
 export VAULT_URL="https://kmac-vault-production.up.railway.app"
-export VAULT_TOKEN="MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8="
+export VAULT_TOKEN="<REDACTED-ROTATE-THIS-TOKEN>"
 
 # Get current values from Railway (you'll need to copy these from dashboard)
 # Then add to vault with proper namespace:
@@ -225,7 +225,7 @@ Keep ONLY these in Railway env vars:
 
 # Vault connection (only secrets needed)
 VAULT_URL=http://kmac-vault.railway.internal:9999
-VAULT_TOKEN=MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=
+VAULT_TOKEN=<REDACTED-ROTATE-THIS-TOKEN>
 
 # Database/Redis (service references - keep these)
 DATABASE_URL=${POSTGRES_URL}
