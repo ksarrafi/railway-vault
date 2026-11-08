@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
 """
-One-time migration for existing Railway KMac Vault deployments.
+One-time migration for existing Railway KMac Vault deployments, from the
+pre-1.1.0 token-derived key scheme to 1.1.0's independent VAULT_MASTER_KEY.
 
 Versions before 1.1.0 derived the encryption key from VAULT_TOKEN itself
 (PBKDF2(VAULT_TOKEN, salt_file)). 1.1.0 uses an independent VAULT_MASTER_KEY
 so that rotating a caller's token no longer breaks decryption of existing
 secrets. Run this ONCE, offline, before switching a deployment to the new
 server code, to re-encrypt existing rows under the new key.
+
+This script does NOT support rotating VAULT_MASTER_KEY itself later (there
+is currently no "decrypt under old master key, re-encrypt under new one"
+path — only this one legacy-token migration). A future master-key rotation
+would need a similar but separate script; don't point at this one for that.
+
+All-or-nothing: if any row fails to decrypt under OLD_VAULT_TOKEN, nothing
+is written — the script rolls back rather than committing a partial
+migration, so you don't end up with some secrets silently stuck on the old
+key and permanently unreadable by the new server.
 
 Usage:
     export OLD_VAULT_TOKEN="<the VAULT_TOKEN this deployment used before>"
@@ -68,13 +79,16 @@ def main() -> None:
         conn.execute("UPDATE secrets SET value = ? WHERE key = ?", (new_ciphertext, key))
         migrated += 1
 
+    if failed:
+        conn.rollback()
+        conn.close()
+        print(f"❌ Failed:   {failed} row(s) — nothing was written (rolled back).")
+        print("Check OLD_VAULT_TOKEN and the salt file, then re-run. The database is unchanged.")
+        sys.exit(1)
+
     conn.commit()
     conn.close()
-
     print(f"✅ Migrated: {migrated}")
-    if failed:
-        print(f"❌ Failed:   {failed} (left unchanged — check OLD_VAULT_TOKEN / salt file)")
-        sys.exit(1)
     print("Done. You can now deploy the new server with VAULT_MASTER_KEY and VAULT_TOKENS set.")
 
 

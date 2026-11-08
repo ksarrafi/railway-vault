@@ -78,8 +78,10 @@ curl https://your-service.railway.app/health
 ## 🔒 Generate the Master Key and Tokens
 
 ```bash
-# The encryption key — generate ONCE, store securely, do not rotate casually
-# (rotating it requires re-encrypting the DB with migrate_encryption.py)
+# The encryption key — generate ONCE, store securely. There is currently no
+# supported way to rotate this later (migrate_encryption.py only handles the
+# one-time move off the old pre-1.1.0 token-derived key) — treat it as
+# effectively permanent for this deployment.
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
 # One token per app (safe to rotate anytime — doesn't affect encryption)
@@ -190,7 +192,7 @@ railway restart
 curl https://your-vault-service.railway.app/health
 
 # Expected:
-# {"ok": true, "backend": "railway", "version": "1.0.0"}
+# {"ok": true, "backend": "railway", "version": "1.1.0"}
 ```
 
 ### 2. Test API
@@ -459,9 +461,10 @@ railway variables set VAULT_TOKEN="$NEW_ADAJOON_TOKEN" --service adajoon
 railway restart --service adajoon
 ```
 
-Rotate `VAULT_MASTER_KEY` far less often, and only with `migrate_encryption.py`
-run first (see that script's docstring) — it requires re-encrypting every
-stored secret.
+There is currently no supported way to rotate `VAULT_MASTER_KEY` itself —
+`migrate_encryption.py` only migrates off the old pre-1.1.0 token-derived
+key, once. Treat `VAULT_MASTER_KEY` as effectively permanent; a future
+rotation would need a new, separate migration script.
 
 ### 3. Access Control
 

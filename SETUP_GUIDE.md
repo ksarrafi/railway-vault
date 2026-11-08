@@ -99,7 +99,7 @@ railway domain
 curl https://your-vault-production-abc123.railway.app/health
 
 # Expected response:
-# {"ok": true, "backend": "railway", "version": "1.0.0"}
+# {"ok": true, "backend": "railway", "version": "1.1.0"}
 
 # Test authentication (from inside Railway's private network in practice —
 # the public domain should be disabled once this works)

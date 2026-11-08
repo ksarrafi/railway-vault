@@ -260,6 +260,30 @@ class VaultServerTestCase(unittest.TestCase):
         # regardless of the spoofed leftmost value.
         self.assertTrue(all(ip == "203.0.113.9" for ip in ip_seen), ip_seen)
 
+    def test_xff_misconfigured_hops_fails_closed_not_open(self):
+        # If VAULT_TRUSTED_PROXY_HOPS is set higher than the number of hops
+        # actually present (e.g. operator misconfiguration, or a request that
+        # arrived by a shorter path than usual), _client_ip must fail closed to
+        # the raw TCP peer address, NOT fall back to the attacker-controlled
+        # leftmost X-Forwarded-For entry -- that fallback would silently reopen
+        # the exact spoofing bug this function exists to prevent.
+        class _FakeHeaders(dict):
+            def get(self, key, default=None):
+                return dict.get(self, key, default)
+
+        class _FakeHandler:
+            client_address = ("127.0.0.1", 12345)
+            headers = _FakeHeaders({"X-Forwarded-For": "203.0.113.9"})  # only 1 hop present
+
+        orig_hops = self.vs.TRUSTED_PROXY_HOPS
+        self.vs.TRUSTED_PROXY_HOPS = 2  # misconfigured: expects 2 hops, only 1 is present
+        try:
+            resolved = self.vs.VaultHandler._client_ip(_FakeHandler())
+            self.assertEqual(resolved, "127.0.0.1", resolved)
+            self.assertNotEqual(resolved, "203.0.113.9")
+        finally:
+            self.vs.TRUSTED_PROXY_HOPS = orig_hops
+
     def test_type_validation_on_set(self):
         r = requests.post(
             f"{self.base_url}/set",

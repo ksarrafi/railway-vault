@@ -54,12 +54,60 @@ below before upgrading.
 - **Input validation** — `/set` now rejects non-string `key`/`value`
   instead of throwing an unhandled exception.
 
+## 🔒 Fixes found in a second review pass of this same release
+
+- **`X-Forwarded-For` trust now fails closed.** If `VAULT_TRUSTED_PROXY_HOPS`
+  is configured higher than the number of hops actually present (e.g.
+  misconfiguration), `_client_ip` previously fell back to the leftmost
+  (attacker-controlled) entry — reopening the exact spoofing bug this
+  release was meant to fix. It now falls back to the raw TCP peer address
+  instead.
+- **`/list` scoping rewritten to filter in Python**, using the same
+  `Identity.can_access` every other route uses, instead of a separate SQL
+  `LIKE` pattern. The `LIKE` version had two real bugs: it was
+  case-insensitive while `can_access` is case-sensitive (letting
+  differently-cased identities see each other's key names), and its
+  "escaping" of `%`/`_` was a no-op (no `ESCAPE` clause), so an app whose
+  name contained `_` — a very plausible real name — couldn't see its own
+  keys.
+- **Startup now validates `VAULT_TOKENS` more strictly**: rejects an empty
+  prefix on a non-admin identity (which would otherwise grant unscoped
+  access), rejects two identities sharing the same token, and rejects a
+  custom prefix that is itself a prefix of another identity's prefix (e.g.
+  `stablebank` vs `stablebank-demo`) instead of letting it through as a
+  silent cross-tenant access path.
+- **Audit log coverage completed.** `/has`, forbidden calls to `/history`
+  and `/undelete`, not-found calls to `/delete` and `/undelete`, and
+  invalid-input calls to `/set` are now all recorded — previously these
+  paths were invisible in `/admin/audit`, so a probing/enumeration attempt
+  using a stolen token could go unnoticed.
+- **`_init_db`'s schema-upgrade step no longer swallows unrelated errors.**
+  It previously caught any `sqlite3.OperationalError` when adding columns to
+  an old-schema database; a locked DB, full disk, or permissions error would
+  be silently discarded and only surface later as a confusing "no such
+  column" error on the first request. It now only ignores the specific
+  "duplicate column" case and re-raises everything else at startup.
+- **`migrate_encryption.py` is now all-or-nothing.** It previously committed
+  successfully-migrated rows even when others failed to decrypt under
+  `OLD_VAULT_TOKEN`; a deploy pipeline that didn't check its exit code could
+  end up with some secrets permanently stuck on the old key. It now rolls
+  back entirely on any failure.
+- **Docs corrected**: `migrate_encryption.py` only migrates off the old
+  pre-1.1.0 token-derived key, once — it does not support rotating
+  `VAULT_MASTER_KEY` itself later. README/DEPLOY previously implied
+  otherwise; there is currently no supported master-key rotation path.
+
 ## 🧪 Testing
 
 - `test_vault_server.py` — integration test suite covering auth, scoping,
   soft delete/undelete, versioning, audit logging, CORS-off-by-default, and
-  the `X-Forwarded-For` trust boundary. Run with
-  `python3 -m unittest test_vault_server.py -v`.
+  the `X-Forwarded-For` trust boundary (including the fail-closed
+  misconfiguration case). Run with `python3 -m unittest test_vault_server.py -v`.
+- `test_migration_and_startup.py` — startup fail-fast checks (missing/malformed
+  `VAULT_MASTER_KEY`, no auth configured, duplicate tokens, colliding
+  prefixes) and a `migrate_encryption.py` round trip (including the
+  partial-failure rollback case) against a seeded old-format database. Run
+  with `python3 -m unittest test_migration_and_startup.py -v`.
 
 ## Still single-threaded, on purpose
 

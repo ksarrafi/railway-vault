@@ -7,8 +7,6 @@ in a SQLite database stored on a Railway volume.
 Auth: Bearer token per caller, resolved to a scoped identity (see VAULT_TOKENS below).
 """
 
-import base64
-import hashlib
 import hmac
 import json
 import os
@@ -108,10 +106,11 @@ def _decrypt(ciphertext: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Identity / auth: each caller gets its own token, scoped to a key prefix.
-# An "admin" identity is unscoped and can also read the audit log and
-# per-key history. There is no silent auto-generated fallback token: missing
-# configuration is a fatal startup error, not a runtime surprise logged in
-# plaintext.
+# An "admin" identity is unscoped. Per-key history (/history/:key) is visible
+# to admins and to the key's own scoped owner (never to a different app);
+# the global audit log (/admin/audit) is admin-only. There is no silent
+# auto-generated fallback token: missing configuration is a fatal startup
+# error, not a runtime surprise logged in plaintext.
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -143,10 +142,52 @@ def _load_identities() -> dict[str, Identity]:
                 print(f"FATAL: VAULT_TOKENS entry '{name}' must be an object with a 'token' field", file=sys.stderr)
                 raise SystemExit(1)
             is_admin = bool(entry.get("admin", False))
-            prefix = entry.get("prefix", f"{name}:")
+            prefix = str(entry.get("prefix", f"{name}:"))
+            if not is_admin and not prefix:
+                print(
+                    f"FATAL: VAULT_TOKENS entry '{name}' is non-admin but has an empty prefix, "
+                    "which would grant it unscoped access to every key (key.startswith('') is "
+                    "always true). Give it a real prefix, or set admin: true if that's intended.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
             identities[name] = Identity(
-                name=name, token=str(entry["token"]).strip(), admin=is_admin, prefix=str(prefix)
+                name=name, token=str(entry["token"]).strip(), admin=is_admin, prefix=prefix
             )
+
+    # Catch two identities configured with the same token: _resolve_identity
+    # would silently pick one of them (whichever is iterated last), hiding a
+    # likely copy-paste mistake rather than failing loudly.
+    seen_tokens: dict[str, str] = {}
+    for identity in identities.values():
+        prior = seen_tokens.get(identity.token)
+        if prior is not None:
+            print(
+                f"FATAL: VAULT_TOKENS entries '{prior}' and '{identity.name}' share the same "
+                "token. Each identity must have a unique token.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        seen_tokens[identity.token] = identity.name
+
+    # Catch prefixes where one is a strict prefix of another (e.g. "stablebank"
+    # vs "stablebank-demo") -- with a custom `prefix` that doesn't end on a
+    # delimiter, Identity.can_access's startswith() would let the shorter
+    # prefix's holder read/write the longer prefix's keys too. The default
+    # prefix (f"{name}:") never collides this way; this only bites a
+    # hand-configured override, which is exactly when it's easiest to miss.
+    non_admin = [i for i in identities.values() if not i.admin]
+    for a in non_admin:
+        for b in non_admin:
+            if a.name != b.name and b.prefix.startswith(a.prefix):
+                print(
+                    f"FATAL: VAULT_TOKENS prefix '{a.prefix}' (identity '{a.name}') is a "
+                    f"prefix of '{b.prefix}' (identity '{b.name}') -- '{a.name}' would be able "
+                    f"to access '{b.name}''s keys too. Use non-overlapping prefixes (e.g. end "
+                    "each in a delimiter like ':').",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
 
     legacy_token = os.getenv("VAULT_TOKEN")
     if legacy_token:
@@ -179,6 +220,10 @@ def _resolve_identity(token: str) -> Optional[Identity]:
     if not token:
         return None
     match: Optional[Identity] = None
+    # Deliberately check every identity rather than returning on the first
+    # match: an early return would make comparison time depend on *where* in
+    # the dict a match is, leaking information via timing. Keep this a full
+    # scan even if it looks like it could be "optimized" into an early exit.
     for identity in _IDENTITIES.values():
         if hmac.compare_digest(token.encode("utf-8", "ignore"), identity.token.encode("utf-8", "ignore")):
             match = identity
@@ -200,14 +245,19 @@ def _init_db():
         """
     )
     # Upgrade path for databases created by older versions of this server.
+    # Only swallow the specific "duplicate column" error this loop expects;
+    # anything else (locked DB, disk full, permissions) must surface at
+    # startup, not get silently discarded and resurface later as a confusing
+    # "no such column" error on the first request.
     for ddl in (
         "ALTER TABLE secrets ADD COLUMN updated_by TEXT",
         "ALTER TABLE secrets ADD COLUMN deleted_at TIMESTAMP",
     ):
         try:
             conn.execute(ddl)
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
 
     conn.execute(
         """
@@ -283,7 +333,12 @@ class VaultHandler(BaseHTTPRequestHandler):
         idx = len(hops) - TRUSTED_PROXY_HOPS
         if 0 <= idx < len(hops):
             return hops[idx]
-        return hops[0]
+        # TRUSTED_PROXY_HOPS is configured higher than the number of hops actually
+        # present (misconfiguration, or a request that reached us by a shorter path
+        # than normal, e.g. a probe). Fail closed to the raw TCP peer rather than
+        # falling back to hops[0], which would be attacker-controlled and would
+        # silently reopen the exact spoofing bug this function exists to prevent.
+        return peer
 
     def _identity(self) -> Optional[Identity]:
         auth = self.headers.get("Authorization", "")
@@ -403,31 +458,30 @@ class VaultHandler(BaseHTTPRequestHandler):
                 self._json_response({"error": "not found"}, 404)
 
         elif path == "/list":
-            if identity.admin:
-                rows = _db.execute(
-                    "SELECT key FROM secrets WHERE deleted_at IS NULL ORDER BY key"
-                ).fetchall()
-            else:
-                rows = _db.execute(
-                    "SELECT key FROM secrets WHERE deleted_at IS NULL AND key LIKE ? ORDER BY key",
-                    (identity.prefix.replace("%", "\\%").replace("_", "\\_") + "%",),
-                ).fetchall()
+            # Filtering happens in Python via the same Identity.can_access used
+            # everywhere else, rather than a separate SQL LIKE pattern — one
+            # source of truth for scoping, no LIKE-escaping edge cases.
+            rows = _db.execute("SELECT key FROM secrets WHERE deleted_at IS NULL ORDER BY key").fetchall()
+            keys = [r[0] for r in rows if identity.can_access(r[0])]
             self._audit(identity.name, "list", None, "ok", self._client_ip())
-            self._json_response({"keys": [r[0] for r in rows]})
+            self._json_response({"keys": keys})
 
         elif path.startswith("/has/"):
             key = self._path_and_key("/has/")
             if not identity.can_access(key):
+                self._audit(identity.name, "has", key, "forbidden", self._client_ip())
                 self._json_response({"error": "forbidden"}, 403)
                 return
             row = _db.execute(
                 "SELECT 1 FROM secrets WHERE key = ? AND deleted_at IS NULL", (key,)
             ).fetchone()
+            self._audit(identity.name, "has", key, "ok", self._client_ip())
             self._json_response({"exists": row is not None})
 
         elif path.startswith("/history/"):
             key = self._path_and_key("/history/")
             if not identity.admin and not identity.can_access(key):
+                self._audit(identity.name, "history", key, "forbidden", self._client_ip())
                 self._json_response({"error": "forbidden"}, 403)
                 return
             rows = _db.execute(
@@ -485,6 +539,8 @@ class VaultHandler(BaseHTTPRequestHandler):
             key = body.get("key", "")
             value = body.get("value", "")
             if not isinstance(key, str) or not isinstance(value, str) or not key or not value:
+                audit_key = key if isinstance(key, str) else None
+                self._audit(identity.name, "set", audit_key, "invalid_input", self._client_ip())
                 self._json_response({"error": "key and value required and must be strings"}, 400)
                 return
             if not identity.can_access(key):
@@ -523,6 +579,7 @@ class VaultHandler(BaseHTTPRequestHandler):
                 "SELECT value FROM secrets WHERE key = ? AND deleted_at IS NULL", (key,)
             ).fetchone()
             if not row:
+                self._audit(identity.name, "delete", key, "not_found", self._client_ip())
                 self._json_response({"error": "not found"}, 404)
                 return
             _record_history(key, row[0], "delete", identity.name)
@@ -537,12 +594,14 @@ class VaultHandler(BaseHTTPRequestHandler):
         elif path.startswith("/undelete/"):
             key = self._path_and_key("/undelete/")
             if not identity.can_access(key):
+                self._audit(identity.name, "undelete", key, "forbidden", self._client_ip())
                 self._json_response({"error": "forbidden"}, 403)
                 return
             row = _db.execute(
                 "SELECT 1 FROM secrets WHERE key = ? AND deleted_at IS NOT NULL", (key,)
             ).fetchone()
             if not row:
+                self._audit(identity.name, "undelete", key, "not_found", self._client_ip())
                 self._json_response({"error": "not found or not deleted"}, 404)
                 return
             _db.execute(

@@ -108,8 +108,11 @@ Or via Railway dashboard:
 
 The encryption key (`VAULT_MASTER_KEY`) is separate from every app's auth
 token, so rotating a token never breaks decryption of existing secrets.
-Generate it once and never rotate it casually — rotating it requires
-re-encrypting the database (see `migrate_encryption.py`).
+Generate it once and don't rotate it casually: `migrate_encryption.py`
+only handles the one-time move off the old pre-1.1.0 token-derived key —
+it does not (yet) support re-encrypting from one `VAULT_MASTER_KEY` to a
+new one. Rotating the master key itself currently has no supported path;
+treat it as close to permanent for a given deployment.
 
 ```bash
 # Generate the master encryption key (once, keep it secret and backed up)
@@ -137,6 +140,26 @@ can see everything, and only the `admin` token can read `/admin/audit` and
 compatibility, but is deprecated: it grants full access to every app's
 secrets and should be migrated away from.
 
+> ⚠️ **Naming gotcha:** `VAULT_TOKEN` means two different things depending
+> on where it's set. On the **vault service itself**, it's the deprecated
+> unscoped-admin fallback above — don't use it there. On a **client
+> service** (Adajoon, InfoBank, etc.), `VAULT_TOKEN` is just the
+> conventional env var name the Python/Node client examples read that
+> app's own scoped token from (any one entry's `token` value out of
+> `VAULT_TOKENS`) — that usage is correct and expected. Setting
+> `VAULT_TOKEN` on an individual client app is fine; setting it on the
+> vault service is the deprecated path.
+
+Other env vars the server reads, with sane defaults — see `vault_server.py`
+for the exact behavior of each:
+- `VAULT_TRUSTED_PROXY_HOPS` (default `1`) — how many trusted reverse-proxy
+  hops are in front of the server; used to pick the right entry out of
+  `X-Forwarded-For` for rate limiting. Leave at the default on Railway
+  unless you've added another proxy layer in front of it.
+- `VAULT_ALLOW_CORS` (default `false`) — set to `true` only if something
+  needs to call this API directly from a browser; off by default since
+  this is meant to be a server-to-server API.
+
 ### 4. Enable Private Networking
 
 ```bash
@@ -160,7 +183,7 @@ Response:
 {
   "ok": true,
   "backend": "railway",
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
 ```
 
@@ -215,7 +238,7 @@ POST /undelete/:key
 Authorization: Bearer <token>
 ```
 
-### Key History (admin only)
+### Key History (admin, or the key's own scoped owner)
 ```bash
 GET /history/:key
 Authorization: Bearer <admin-token>
@@ -512,7 +535,7 @@ Expected response:
 {
   "ok": true,
   "backend": "railway",
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
 ```
 
