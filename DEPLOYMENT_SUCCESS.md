@@ -72,6 +72,16 @@ curl -H "Authorization: Bearer wrong-token" \
 
 ## 🔐 Vault Token
 
+> 🚨 **A real token value was previously committed to this file in git
+> history (and pushed to GitHub) under "Token value" below.** It has been
+> redacted here, but anyone with access to this repo's history — including
+> anyone it was shared with before now — has already seen it. **Treat it as
+> compromised: rotate/revoke it on the live Railway service immediately**
+> and replace it with a new, never-committed token generated per
+> README.md's updated token setup. Do not write real token values into any
+> file in this repo again — use placeholders only, and keep real values in
+> Railway's environment variables / a password manager.
+
 **Your vault token is saved at:**
 ```
 ~/railway-vault-token.txt
@@ -79,7 +89,7 @@ curl -H "Authorization: Bearer wrong-token" \
 
 **Token value:**
 ```
-MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=
+<REDACTED-ROTATE-THIS-TOKEN>
 ```
 
 ⚠️ **IMPORTANT:** Keep this token secure! You'll need it for all your services.
@@ -126,7 +136,7 @@ You have **5 Railway services** to migrate:
 railway variables set VAULT_URL="http://kmac-vault.railway.internal:9999" \
   --service [SERVICE_NAME]
 
-railway variables set VAULT_TOKEN="MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=" \
+railway variables set VAULT_TOKEN="<REDACTED-ROTATE-THIS-TOKEN>" \
   --service [SERVICE_NAME]
 ```
 
@@ -146,7 +156,7 @@ SECRETS_TO_MIGRATE = {
 Run migration:
 ```bash
 export VAULT_URL="https://kmac-vault-production.up.railway.app"
-export VAULT_TOKEN="MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8="
+export VAULT_TOKEN="<REDACTED-ROTATE-THIS-TOKEN>"
 
 # Copy current env vars from Railway dashboard first
 export DATABASE_URL="..."
@@ -259,7 +269,7 @@ Current security posture:
 
 ```bash
 # Export for backup
-echo "VAULT_TOKEN=MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=" > vault-backup.txt
+echo "VAULT_TOKEN=<REDACTED-ROTATE-THIS-TOKEN>" > vault-backup.txt
 
 # Encrypt it
 gpg --encrypt --recipient khash@khash.com vault-backup.txt
@@ -275,28 +285,28 @@ rm vault-backup.txt
 
 ### View All Secrets
 ```bash
-curl -H "Authorization: Bearer MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=" \
+curl -H "Authorization: Bearer <REDACTED-ROTATE-THIS-TOKEN>" \
   https://kmac-vault-production.up.railway.app/list | jq
 ```
 
 ### Add a Secret
 ```bash
 curl -X POST https://kmac-vault-production.up.railway.app/set \
-  -H "Authorization: Bearer MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=" \
+  -H "Authorization: Bearer <REDACTED-ROTATE-THIS-TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"key":"myapp:secret_key","value":"secret-value"}'
 ```
 
 ### Get a Secret
 ```bash
-curl -H "Authorization: Bearer MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=" \
+curl -H "Authorization: Bearer <REDACTED-ROTATE-THIS-TOKEN>" \
   https://kmac-vault-production.up.railway.app/get/myapp:secret_key | jq
 ```
 
 ### Delete a Secret
 ```bash
 curl -X POST \
-  -H "Authorization: Bearer MC/0uklic3axGOpOPlWaXhnxz+eSeKuHnS+dudoEt+8=" \
+  -H "Authorization: Bearer <REDACTED-ROTATE-THIS-TOKEN>" \
   https://kmac-vault-production.up.railway.app/delete/myapp:secret_key
 ```
 

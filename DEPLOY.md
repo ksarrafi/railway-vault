@@ -16,12 +16,15 @@ railway up
 # Add volume for persistent storage
 railway volume create data --mount /vault/data
 
-# Generate secure token
-TOKEN=$(openssl rand -base64 32)
-echo "Generated token: $TOKEN"
+# Generate the master encryption key (independent of any auth token — see
+# README.md "Security Best Practices" for why this matters)
+MASTER_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+railway variables set VAULT_MASTER_KEY="$MASTER_KEY"
 
-# Set environment variables
-railway variables set VAULT_TOKEN="$TOKEN"
+# Generate one scoped token per app, plus an admin token for yourself
+ADMIN_TOKEN=$(openssl rand -base64 32)
+ADAJOON_TOKEN=$(openssl rand -base64 32)
+railway variables set VAULT_TOKENS="{\"admin\":{\"token\":\"$ADMIN_TOKEN\",\"admin\":true},\"adajoon\":{\"token\":\"$ADAJOON_TOKEN\"}}"
 railway variables set PORT="9999"
 
 # Get service URL
@@ -58,10 +61,12 @@ curl https://your-service.railway.app/health
    - Click "Variables" tab
    - Add variables:
      ```
-     VAULT_TOKEN=<generate-with-openssl-rand-base64-32>
+     VAULT_MASTER_KEY=<python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+     VAULT_TOKENS={"admin":{"token":"<openssl rand -base64 32>","admin":true},"adajoon":{"token":"<openssl rand -base64 32>"}}
      PORT=9999
      ```
    - Click "Add" for each
+   - Add one more entry to the `VAULT_TOKENS` JSON per app you'll connect (InfoBank, StableBank, etc.) — never reuse one token across apps
 
 5. **Deploy**
    - Railway will auto-deploy from Dockerfile
@@ -70,19 +75,20 @@ curl https://your-service.railway.app/health
 
 ---
 
-## 🔒 Generate Secure Token
+## 🔒 Generate the Master Key and Tokens
 
 ```bash
-# Generate a cryptographically secure token
+# The encryption key — generate ONCE, store securely. There is currently no
+# supported way to rotate this later (migrate_encryption.py only handles the
+# one-time move off the old pre-1.1.0 token-derived key) — treat it as
+# effectively permanent for this deployment.
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# One token per app (safe to rotate anytime — doesn't affect encryption)
 openssl rand -base64 32
 
-# Output example:
-# Nzk4NjE2MzQ1MjE4NzY5Mzk4...
-
-# Save this token securely!
-# You'll need it for:
-# 1. VAULT_TOKEN env var on vault service
-# 2. VAULT_TOKEN env var on all client services
+# Save tokens securely! Each app's own token goes on that app's service as
+# VAULT_TOKEN; the vault service itself holds all of them in VAULT_TOKENS.
 ```
 
 ---
@@ -186,7 +192,7 @@ railway restart
 curl https://your-vault-service.railway.app/health
 
 # Expected:
-# {"ok": true, "backend": "railway", "version": "1.0.0"}
+# {"ok": true, "backend": "railway", "version": "1.1.0"}
 ```
 
 ### 2. Test API
@@ -436,31 +442,40 @@ railway restart --all
 
 ### 2. Token Rotation
 
+Because the encryption key (`VAULT_MASTER_KEY`) is independent of any app's
+token, you can rotate one app's token without touching any other app or
+re-encrypting anything:
+
 ```bash
-# Every 90 days:
-# 1. Generate new token
-NEW_TOKEN=$(openssl rand -base64 32)
+# Rotate Adajoon's token only — InfoBank, StableBank, etc. are unaffected
+NEW_ADAJOON_TOKEN=$(openssl rand -base64 32)
 
-# 2. Update vault service
-railway variables set VAULT_TOKEN="$NEW_TOKEN" --service kmac-vault
+# Update the adajoon entry inside VAULT_TOKENS on the vault service
+railway variables set VAULT_TOKENS="$(railway variables get VAULT_TOKENS --service kmac-vault \
+  | jq --arg t "$NEW_ADAJOON_TOKEN" '.adajoon.token = $t')" --service kmac-vault
 
-# 3. Update all client services (one at a time)
-railway variables set VAULT_TOKEN="$NEW_TOKEN" --service adajoon
-railway variables set VAULT_TOKEN="$NEW_TOKEN" --service infobank
-# ...etc
+# Update the matching client service
+railway variables set VAULT_TOKEN="$NEW_ADAJOON_TOKEN" --service adajoon
 
-# 4. Restart services
-railway restart --all
+# Restart just that service
+railway restart --service adajoon
 ```
+
+There is currently no supported way to rotate `VAULT_MASTER_KEY` itself —
+`migrate_encryption.py` only migrates off the old pre-1.1.0 token-derived
+key, once. Treat `VAULT_MASTER_KEY` as effectively permanent; a future
+rotation would need a new, separate migration script.
 
 ### 3. Access Control
 
-**Single token per environment:**
+**One scoped token per app, per environment — never shared:**
 
 ```
-Development:   VAULT_TOKEN=dev_token_...
-Staging:       VAULT_TOKEN=staging_token_...
-Production:    VAULT_TOKEN=prod_token_...
+VAULT_TOKENS = {
+  "admin":     {"token": "...", "admin": true},
+  "adajoon":   {"token": "..."},
+  "infobank":  {"token": "..."}
+}
 ```
 
 **Or use different vault instances:**

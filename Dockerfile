@@ -1,7 +1,9 @@
 FROM python:3.12-alpine
 
-# Install dependencies
-RUN pip install --no-cache-dir cryptography==44.0.0
+# Install dependencies (from requirements.txt, not duplicated here, so the
+# two can't silently drift apart)
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 # Create non-root user
 RUN adduser -D -h /app vaultuser

@@ -68,22 +68,25 @@ railway volume create data --mount /vault/data
 6. Mount Path: `/vault/data`
 7. Click "Add"
 
-### Step 4: Generate and Set Token
+### Step 4: Generate the Master Key and Per-App Tokens
 
 ```bash
-# Generate secure token
-TOKEN=$(openssl rand -base64 32)
-echo "Your vault token: $TOKEN"
+# Master encryption key — generate ONCE. This is independent of any app's
+# token, so rotating a token later never breaks decryption of existing data.
+MASTER_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+echo "Master key: $MASTER_KEY"
 
-# IMPORTANT: Save this token securely!
-# You'll need it for all client services
+# One token per app, plus an admin token for yourself (never put the admin
+# token on an application service)
+ADMIN_TOKEN=$(openssl rand -base64 32)
+echo "Admin token: $ADMIN_TOKEN"
+
+# IMPORTANT: Save these securely! You'll generate one more token per app
+# as you migrate each service in Phase 2.
 
 # Set on Railway
-railway variables set VAULT_TOKEN="$TOKEN"
-
-# Or copy to clipboard (macOS)
-echo "$TOKEN" | pbcopy
-echo "Token copied to clipboard!"
+railway variables set VAULT_MASTER_KEY="$MASTER_KEY"
+railway variables set VAULT_TOKENS="{\"admin\":{\"token\":\"$ADMIN_TOKEN\",\"admin\":true}}"
 ```
 
 ### Step 5: Verify Deployment
@@ -96,10 +99,11 @@ railway domain
 curl https://your-vault-production-abc123.railway.app/health
 
 # Expected response:
-# {"ok": true, "backend": "railway", "version": "1.0.0"}
+# {"ok": true, "backend": "railway", "version": "1.1.0"}
 
-# Test authentication
-curl -H "Authorization: Bearer $TOKEN" \
+# Test authentication (from inside Railway's private network in practice —
+# the public domain should be disabled once this works)
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
   https://your-vault-production-abc123.railway.app/list
 
 # Expected response:
@@ -166,9 +170,15 @@ Common secrets to migrate:
 #### Step 2: Add Vault Connection to Adajoon
 
 ```bash
-# Add vault connection variables
+# Generate a token scoped to Adajoon only, and add it to the vault's
+# VAULT_TOKENS (it can only touch "adajoon:" keys)
+ADAJOON_TOKEN=$(openssl rand -base64 32)
+railway variables set VAULT_TOKENS="$(railway variables get VAULT_TOKENS --service kmac-vault \
+  | jq --arg t "$ADAJOON_TOKEN" '.adajoon = {"token": $t}')" --service kmac-vault
+
+# Add vault connection variables to Adajoon itself
 railway variables set VAULT_URL="http://kmac-vault.railway.internal:9999" --service adajoon
-railway variables set VAULT_TOKEN="<your-vault-token>" --service adajoon
+railway variables set VAULT_TOKEN="$ADAJOON_TOKEN" --service adajoon
 ```
 
 #### Step 3: Migrate Secrets to Vault

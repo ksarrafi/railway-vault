@@ -14,16 +14,19 @@
 # Name: data
 # Mount: /vault/data
 
-# 3. Set token
-TOKEN=$(openssl rand -base64 32)
-railway variables set VAULT_TOKEN="$TOKEN"
+# 3. Set the master encryption key (once) and a scoped token per app
+MASTER_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+ADMIN_TOKEN=$(openssl rand -base64 32)
+ADAJOON_TOKEN=$(openssl rand -base64 32)
+railway variables set VAULT_MASTER_KEY="$MASTER_KEY"
+railway variables set VAULT_TOKENS="{\"admin\":{\"token\":\"$ADMIN_TOKEN\",\"admin\":true},\"adajoon\":{\"token\":\"$ADAJOON_TOKEN\"}}"
 
-# 4. Test
-curl https://your-vault.railway.app/health
+# 4. Test (from inside Railway's private network, not the public URL)
+curl http://kmac-vault.railway.internal:9999/health
 
-# 5. Save token somewhere safe!
-echo "$TOKEN" > ~/railway-vault-token.txt
-chmod 600 ~/railway-vault-token.txt
+# 5. Save tokens somewhere safe! Each app gets only ITS OWN token.
+echo "$ADAJOON_TOKEN" > ~/adajoon-vault-token.txt
+chmod 600 ~/adajoon-vault-token.txt
 ```
 
 ---
@@ -145,23 +148,24 @@ railway variables delete API_KEY
 ## 🔑 Token Management
 
 ```bash
-# Generate token
+# Generate a per-app token (each app gets its OWN token — never share one)
 openssl rand -base64 32
 
 # Save securely
-echo "$TOKEN" > ~/railway-vault-token.txt
-chmod 600 ~/railway-vault-token.txt
+echo "$TOKEN" > ~/adajoon-vault-token.txt
+chmod 600 ~/adajoon-vault-token.txt
 
 # Or use 1Password CLI
 op item create --category=password \
-  --title="Railway Vault Token" \
+  --title="Adajoon Vault Token" \
   token="$TOKEN"
 
-# Rotate every 90 days
-# 1. Generate new token
-# 2. Update vault service
-# 3. Update all client services
-# 4. Restart all
+# Rotate a single app's token anytime — it doesn't touch VAULT_MASTER_KEY
+# or any other app:
+# 1. Generate new token for that app
+# 2. Update its entry in VAULT_TOKENS on the vault service
+# 3. Update VAULT_TOKEN on that one client service
+# 4. Restart that service
 ```
 
 ---
