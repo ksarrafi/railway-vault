@@ -169,7 +169,7 @@ Railway Env Vars (visible) → railway-vault (encrypted & hidden)
 │ Backend Service → Variables                 │
 │                                             │
 │ VAULT_URL = http://kmac-vault.railway...   │ ✅
-│ VAULT_TOKEN = MC/0uklic3ax...              │ ✅ (only secret)
+│ VAULT_TOKEN = <REDACTED>...              │ ✅ (only secret)
 │ DATABASE_URL = ${POSTGRES_URL}              │ ✅ (reference)
 │ CORS_ORIGINS = https://adajoon.com          │ ✅ (not secret)
 │                                             │

@@ -365,7 +365,7 @@ Railway Dashboard → Backend Service → Variables (visible)
 ```
 Railway Dashboard → Backend Service → Variables
 ├── VAULT_URL=http://kmac-vault.railway.internal:9999 ✅
-├── VAULT_TOKEN=MC/0ukl... ✅ (only this one secret)
+├── VAULT_TOKEN=<REDACTED>... ✅ (only this one secret)
 ├── DATABASE_URL=${POSTGRES_URL} ✅ (reference)
 └── CORS_ORIGINS=... ✅ (not secret)
 
